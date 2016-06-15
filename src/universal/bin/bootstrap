@@ -1,0 +1,35 @@
+#!/bin/bash
+set -x
+ZK_DATA_DIR='/var/lib/zookeeper'
+CURRENT_PATH=`dirname "$0"`
+export JMXDISABLE=false
+ZK_CLIENT_OTHER_IPS=(${ZOOKEEPER_CLIENT_OTHER_IPS//:/ })
+ZK_NUM_PEERS=0
+export ZOO_LOG_DIR=$ZK_DATA_DIR/logs
+# Empty the Data Dir of prev proc 
+rm -r $ZK_DATA_DIR/*
+echo "clientPort=$ZOOKEEPER_CLIENT_BIND_PORT"  | tee -a $CURRENT_PATH/../conf/zoo.cfg
+echo "dataDir=$ZK_DATA_DIR" | tee -a $CURRENT_PATH/../conf/zoo.cfg
+
+ARR_ZK_OTHER_IPS=(${ZK_CLIENT_OTHER_IPS//:/})
+for i in "${!ZK_CLIENT_OTHER_IPS[@]}"
+do
+  ZK_PEERS=${ZK_CLIENT_OTHER_IPS[$i]}
+  ((ZK_NUM_PEERS+=1))
+done
+echo $ZK_NUM_PEERS
+if [ -z "$ZK_PEERS" ]
+then #this is the first instance
+  ZK_MYID=1
+else
+  ZK_MYID=$((ZK_NUM_PEERS + 1))
+  for i in "${!ZK_NUM_PEERS}"
+  do
+    PEER_IP=${ZK_PEERS[$((i))]}
+    echo "server.$((i))=$PEER_IP:2888:3888" | tee -a $CURRENT_PATH/../conf/zoo.cfg
+  done
+fi
+
+echo $ZK_MYID > $ZK_DATA_DIR/myid
+
+/bin/bash $CURRENT_PATH/zkServer.sh start-foreground

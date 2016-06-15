@@ -1,0 +1,14 @@
+project/project
+project/target
+target
+tmp
+.cache*
+.classpath
+.settings/
+.project
+.target/
+/bin/
+*.swp
+bin
+.idea
+*.iml
