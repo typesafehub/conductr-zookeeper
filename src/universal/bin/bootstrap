@@ -1,35 +1,96 @@
 #!/bin/bash
 set -x
-ZK_DATA_DIR='/var/lib/zookeeper'
+
 CURRENT_PATH=`dirname "$0"`
+
+if [ -z "$ZK_DATA_DIR" ]
+then
+  ZK_DATA_DIR="${CURRENT_PATH}/../data"
+  echo "ZK_DATA_DIR not set - using default $ZK_DATA_DIR"
+else
+  echo "ZK_DATA_DIR has been set to $ZK_DATA_DIR"
+fi
+
+mkdir -p ${ZK_DATA_DIR}
+# Empty the Data Dir of prev proc
+rm -rf $ZK_DATA_DIR/*
+
 export JMXDISABLE=false
-ZK_CLIENT_OTHER_IPS=(${ZOOKEEPER_CLIENT_OTHER_IPS//:/ })
-ZK_NUM_PEERS=0
-export ZOO_LOG_DIR=$ZK_DATA_DIR/logs
-# Empty the Data Dir of prev proc 
-rm -r $ZK_DATA_DIR/*
+
+if [ -z "$ZOO_LOG_DIR" ]
+then
+  export ZOO_LOG_DIR="${CURRENT_PATH}/../logs"
+  echo "ZOO_LOG_DIR not set - using default $ZOO_LOG_DIR"
+else
+  echo "ZOO_LOG_DIR has been set to $ZOO_LOG_DIR"
+fi
+
+if [ -z "${ZOO_LOG4J_PROP}" ]
+then
+  export ZOO_LOG4J_PROP="INFO, CONSOLE, ROLLINGFILE"
+  echo "ZOO_LOG4J_PROP not set - using default $ZOO_LOG4J_PROP"
+else
+  echo "ZOO_LOG4J_PROP has been set to $ZOO_LOG4J_PROP"
+fi
+
+if [ -z "${ZK_STANDALONE_ENABLED}" ]
+then
+  echo "Running in Clustered mode"
+  echo "standaloneEnabled=false" | tee -a $CURRENT_PATH/../conf/zoo.cfg
+else
+  echo "Running in Standalone mode"
+  echo "standaloneEnabled=true" | tee -a $CURRENT_PATH/../conf/zoo.cfg
+fi
+
+if [ -z "${ZK_ROLE}" ]
+then
+  ZK_ROLE=participant
+  echo "ZK_ROLE not set - using default ${ZK_ROLE}"
+else
+  echo "ZK_ROLE has been set to ${ZK_ROLE}"
+fi
+
+
+echo "clientPortAddress=$ZOOKEEPER_CLIENT_BIND_IP"  | tee -a $CURRENT_PATH/../conf/zoo.cfg
 echo "clientPort=$ZOOKEEPER_CLIENT_BIND_PORT"  | tee -a $CURRENT_PATH/../conf/zoo.cfg
 echo "dataDir=$ZK_DATA_DIR" | tee -a $CURRENT_PATH/../conf/zoo.cfg
 
-ARR_ZK_OTHER_IPS=(${ZK_CLIENT_OTHER_IPS//:/})
-for i in "${!ZK_CLIENT_OTHER_IPS[@]}"
-do
-  ZK_PEERS=${ZK_CLIENT_OTHER_IPS[$i]}
-  ((ZK_NUM_PEERS+=1))
-done
-echo $ZK_NUM_PEERS
-if [ -z "$ZK_PEERS" ]
-then #this is the first instance
-  ZK_MYID=1
-else
-  ZK_MYID=$((ZK_NUM_PEERS + 1))
-  for i in "${!ZK_NUM_PEERS}"
+# Other ZK hosts
+ARR_ZOOKEEPER_PEER_OTHER_IPS=(${ZOOKEEPER_PEER_OTHER_IPS//:/ })
+# Other ZK client ports
+ARR_ZOOKEEPER_CLIENT_OTHER_PORTS=(${ZOOKEEPER_CLIENT_OTHER_PORTS//:/ })
+# Other ZK peer ports
+ARR_ZOOKEEPER_PEER_OTHER_PORTS=(${ZOOKEEPER_PEER_OTHER_PORTS//:/ })
+# Other ZK leader election ports
+ARR_ZOOKEEPER_ELECTION_OTHER_PORTS=(${ZOOKEEPER_ELECTION_OTHER_PORTS//:/ })
+
+NUMBER_OF_OTHER_NODES=`expr ${#ARR_ZOOKEEPER_PEER_OTHER_IPS[@]}`
+
+if [ "$NUMBER_OF_OTHER_NODES" -gt "0" ]
+then
+  ZK_MYID=$((NUMBER_OF_OTHER_NODES + 1))
+  for i in ${!ARR_ZOOKEEPER_PEER_OTHER_IPS[*]}
   do
-    PEER_IP=${ZK_PEERS[$((i))]}
-    echo "server.$((i))=$PEER_IP:2888:3888" | tee -a $CURRENT_PATH/../conf/zoo.cfg
+    OTHER_ID=$((i + 1))
+    OTHER_PEER_IP="${ARR_ZOOKEEPER_PEER_OTHER_IPS[$i]}"
+    OTHER_CLIENT_PORT="${ARR_ZOOKEEPER_CLIENT_OTHER_PORTS[$i]}"
+    OTHER_PEER_PORT="${ARR_ZOOKEEPER_PEER_OTHER_PORTS[$i]}"
+    OTHER_ELECTION_PORT="${ARR_ZOOKEEPER_ELECTION_OTHER_PORTS[$i]}"
+
+    echo "server.$OTHER_ID=$OTHER_PEER_IP:$OTHER_PEER_PORT:$OTHER_ELECTION_PORT:$ZK_ROLE;$OTHER_PEER_IP:$OTHER_CLIENT_PORT" | tee -a $CURRENT_PATH/../conf/zoo.cfg
   done
+else
+  ZK_MYID=1
 fi
 
+# Declare associate the peer bind port and election port assigned to this node based on the ZK_MYID value.
+echo "server.${ZK_MYID}=${ZOOKEEPER_PEER_BIND_IP}:${ZOOKEEPER_PEER_BIND_PORT}:${ZOOKEEPER_ELECTION_BIND_PORT}:${ZK_ROLE};${ZOOKEEPER_CLIENT_BIND_IP}:${ZOOKEEPER_CLIENT_BIND_PORT}" | tee -a $CURRENT_PATH/../conf/zoo.cfg
+
+
 echo $ZK_MYID > $ZK_DATA_DIR/myid
+
+echo "ZK Server ID: ${ZK_MYID}"
+echo "ZK Server conf: $CURRENT_PATH/../conf/zoo.cfg"
+cat $CURRENT_PATH/../conf/zoo.cfg
 
 /bin/bash $CURRENT_PATH/zkServer.sh start-foreground
